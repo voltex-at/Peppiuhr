@@ -1,0 +1,60 @@
+name: Build Peppiuhr v1.19.10
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/cloud-build.yml'
+      - 'source-overlay.json'
+permissions:
+  contents: read
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore verified base and apply current sources
+        shell: python
+        run: |
+          import hashlib, io, json, pathlib, urllib.request, zipfile
+          url = 'https://github.com/voltex-at/Peppiuhr/releases/download/v1.19.8/Peppiuhr-v1.19.8-SOURCE_BIN.zip'
+          data = urllib.request.urlopen(url).read()
+          assert hashlib.sha256(data).hexdigest() == '3a6e66e93d6f804fc2c1a8b7e577ffaacedc1695979a94991e2ec2290606d400'
+          root = pathlib.Path('firmware')
+          with zipfile.ZipFile(io.BytesIO(data)) as archive:
+              for info in archive.infolist():
+                  if not info.filename.startswith('source/') or info.is_dir(): continue
+                  rel = pathlib.PurePosixPath(info.filename).relative_to('source')
+                  assert '..' not in rel.parts
+                  dest = root / str(rel)
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  dest.write_bytes(archive.read(info))
+          for name, content in json.loads(pathlib.Path('source-overlay.json').read_text()).items():
+              rel = pathlib.PurePosixPath(name)
+              assert not rel.is_absolute() and '..' not in rel.parts
+              dest = root / str(rel)
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_text(content)
+      - name: Install build tools
+        run: python -m pip install platformio==6.2.0 esptool==5.1.0
+      - name: Test calendar and OTA policy
+        working-directory: firmware
+        run: |
+          g++ -std=c++17 -I src tests/calendar_test.cpp -o /tmp/calendar-test
+          /tmp/calendar-test
+          g++ -std=c++17 -I src tests/ota_policy_test.cpp -o /tmp/ota-test
+          /tmp/ota-test
+      - name: Compile ESP32-S3 firmware
+        working-directory: firmware
+        run: pio run -e es3c28p
+      - name: Package sources and binaries
+        working-directory: firmware
+        run: python tools/package_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Peppiuhr-v1.19.10-SOURCE_BIN
+          path: firmware/dist/*
+          if-no-files-found: error

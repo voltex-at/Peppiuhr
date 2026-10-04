@@ -1,0 +1,39 @@
+name: Publish Peppiuhr v1.19.11
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/publish-v1.19.11.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: voltex-at/Peppiuhr
+    steps:
+      - name: Download verified successful build
+        run: |
+          gh run view 37194676963 --json conclusion --jq .conclusion | grep -x success
+          gh run download 37194676963 -n Peppiuhr-v1.19.10-SOURCE_BIN -D release
+      - name: Verify firmware and manifest
+        shell: python
+        run: |
+          import pathlib, json, hashlib, zipfile
+          root=pathlib.Path('release')
+          m=json.loads((root/'ota.json').read_text())
+          b=(root/'firmware.bin').read_bytes()
+          assert m['version']=='1.19.11'
+          assert m['target']=='es3c28p-esp32s3-16mb'
+          assert 256 <= len(b) <= 7340032
+          assert len(b)==m['size']
+          assert hashlib.sha256(b).hexdigest()==m['sha256']
+          assert m['url']=='https://github.com/voltex-at/Peppiuhr/releases/download/v1.19.11/firmware.bin'
+          with zipfile.ZipFile(root/'Peppiuhr-v1.19.11-SOURCE_BIN.zip') as z:
+              assert z.read('bin/firmware.bin')==b
+              pathlib.Path('notes.md').write_bytes(z.read('CHANGES_AND_INSTALL.md'))
+      - name: Publish verified OTA release
+        run: |
+          gh release create v1.19.11 release/firmware.bin release/firmware-merged.bin release/ota.json release/Peppiuhr-v1.19.11-SOURCE_BIN.zip --target 7a0abe992c36fb11ef0f1801be3d1cad308d4613 --title "Peppiuhr v1.19.11 — wskaźnik baterii" --notes-file notes.md --latest

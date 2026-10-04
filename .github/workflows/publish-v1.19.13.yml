@@ -1,0 +1,40 @@
+name: Publish Peppiuhr v1.19.13
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/publish-v1.19.13.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: voltex-at/Peppiuhr
+    steps:
+      - name: Download verified successful build
+        run: |
+          gh run watch 37239971574 --exit-status
+          gh run view 37239971574 --json conclusion --jq .conclusion | grep -x success
+          gh run download 37239971574 -n Peppiuhr-v1.19.13-SOURCE_BIN -D release
+      - name: Verify firmware and manifest
+        shell: python
+        run: |
+          import pathlib, json, hashlib, zipfile
+          root=pathlib.Path('release')
+          m=json.loads((root/'ota.json').read_text())
+          b=(root/'firmware.bin').read_bytes()
+          assert m['version']=='1.19.13'
+          assert m['target']=='es3c28p-esp32s3-16mb'
+          assert 256 <= len(b) <= 7340032
+          assert len(b)==m['size']
+          assert hashlib.sha256(b).hexdigest()==m['sha256']
+          assert m['url']=='https://github.com/voltex-at/Peppiuhr/releases/download/v1.19.13/firmware.bin'
+          with zipfile.ZipFile(root/'Peppiuhr-v1.19.13-SOURCE_BIN.zip') as z:
+              assert z.read('bin/firmware.bin')==b
+              pathlib.Path('notes.md').write_bytes(z.read('CHANGES_AND_INSTALL.md'))
+      - name: Publish verified OTA release
+        run: |
+          gh release create v1.19.13 release/firmware.bin release/firmware-merged.bin release/ota.json release/Peppiuhr-v1.19.13-SOURCE_BIN.zip --target c7850575ab44ea2ba3e35dd776292c3f81e8afbd --title "Peppiuhr v1.19.13 — wykrywanie ładowania i stabilniejszy procent" --notes-file notes.md --latest

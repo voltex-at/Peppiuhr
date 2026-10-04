@@ -1,4 +1,4 @@
-name: Build Peppiuhr v1.19.10
+name: Build Peppiuhr v1.19.13
 on:
   workflow_dispatch:
   push:
@@ -47,6 +47,13 @@ jobs:
           /tmp/calendar-test
           g++ -std=c++17 -I src tests/ota_policy_test.cpp -o /tmp/ota-test
           /tmp/ota-test
+      - name: Test battery estimation
+        working-directory: firmware
+        run: |
+          g++ -std=c++17 -I src tests/battery_test.cpp -o /tmp/battery-test
+          /tmp/battery-test
+          g++ -std=c++17 -I src tests/battery_monitor_test.cpp -o /tmp/battery-monitor-test
+          /tmp/battery-monitor-test
       - name: Compile ESP32-S3 firmware
         working-directory: firmware
         run: pio run -e es3c28p
@@ -55,6 +62,6 @@ jobs:
         run: python tools/package_release.py
       - uses: actions/upload-artifact@v4
         with:
-          name: Peppiuhr-v1.19.10-SOURCE_BIN
+          name: Peppiuhr-v1.19.13-SOURCE_BIN
           path: firmware/dist/*
           if-no-files-found: error
